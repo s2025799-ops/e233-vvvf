@@ -39,6 +39,7 @@
       font-size: 13px;
       color: #ffd60a;
       margin-top: 8px;
+      min-height: 20px;
     }
     
     .lever-wrapper {
@@ -128,7 +129,6 @@
       return `P${notch}`;
     }
 
-    // 音声ファイルの読み込み処理（エラー判定機能付き）
     async function loadSound(url) {
       try {
         const response = await fetch(url);
@@ -141,16 +141,19 @@
       }
     }
 
-    // 効果音再生
-    function playSE(buffer) {
+    // 効果音再生（ログ表示機能付き）
+    function playSE(buffer, name) {
       if (!audioCtx || !buffer) return;
       const source = audioCtx.createBufferSource();
       source.buffer = buffer;
       source.connect(audioCtx.destination);
       source.start();
+      
+      statusMsg.innerText = `🔊 再生: ${name}`;
+      statusMsg.style.color = "#ffd60a";
     }
 
-    // レバー操作時の緩解音トリガー
+    // レバー操作時の判定
     notchLever.addEventListener('input', function() {
       const val = parseInt(this.value, 10);
       const nextNotch = -val;
@@ -158,11 +161,11 @@
       if (isRunning && audioCtx) {
         // 非常ブレーキ緩解（EBから解除した時）
         if (previousNotch === -9 && nextNotch > -9) {
-          playSE(ebReleaseBuffer);
+          playSE(ebReleaseBuffer, "非常ブレーキ緩解音");
         } 
         // 常用ブレーキ緩解（B1〜B8からNまたはPノッチに上げた時）
         else if (previousNotch < 0 && previousNotch > -9 && nextNotch >= 0) {
-          playSE(brakeReleaseBuffer);
+          playSE(brakeReleaseBuffer, "常用ブレーキ緩解音");
         }
       }
 
@@ -171,7 +174,6 @@
       document.getElementById('notchDisplay').innerText = getNotchText(currentNotch);
     });
 
-    // オーディオ初期化と音源ロード
     async function initAudio() {
       if (audioCtx) return;
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -188,15 +190,15 @@
 
       statusMsg.innerText = "音声ファイルをロード中...";
 
-      // 正しい対応関係で読み込み
-      brakeReleaseBuffer = await loadSound('eb.mp3');
-      ebReleaseBuffer = await loadSound('brake.mp3');
+      // 元の正しい対応関係に戻しました
+      brakeReleaseBuffer = await loadSound('eb.mp3');    // 常用ブレーキ緩解音用
+      ebReleaseBuffer = await loadSound('brake.mp3');     // 非常ブレーキ緩解音用
 
       if (brakeReleaseBuffer && ebReleaseBuffer) {
         statusMsg.innerText = "音声ロード完了！正常に稼働中";
         statusMsg.style.color = "#30d158";
       } else {
-        statusMsg.innerText = "⚠️ 一部または全ての音声ファイル読込に失敗（パス/CORS確認）";
+        statusMsg.innerText = "⚠️ 音声ファイルの読み込みに失敗しました";
         statusMsg.style.color = "#ff453a";
       }
     }
