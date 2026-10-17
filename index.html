@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E233系 VVVFシミュレーター</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      text-align: center;
+      background-color: #1c1c1e;
+      color: #ffffff;
+      padding: 20px;
+      user-select: none;
+    }
+    .meter-box {
+      background: #2c2c2e;
+      border-radius: 16px;
+      padding: 20px;
+      margin: 15px auto;
+      max-width: 360px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+    }
+    .label { font-size: 14px; color: #8e8e93; margin-top: 8px; }
+    .speed-val { font-size: 48px; font-weight: bold; color: #30d158; font-family: monospace; }
+    .notch-val { font-size: 32px; font-weight: bold; color: #ffd60a; }
+    .btn-start {
+      font-size: 18px;
+      font-weight: bold;
+      padding: 15px 30px;
+      border: none;
+      border-radius: 12px;
+      background: #ff453a;
+      color: white;
+      width: 80%;
+      max-width: 360px;
+    }
+    
+    /* レバー（スライダー）エリア */
+    .lever-wrapper {
+      background: #2c2c2e;
+      border-radius: 16px;
+      padding: 20px;
+      margin: 15px auto;
+      max-width: 360px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 30px;
+    }
+    .lever-labels {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 220px;
+      font-weight: bold;
+      font-size: 16px;
+      color: #8e8e93;
+    }
+    .lever-labels .active-b { color: #ff453a; }
+    .lever-labels .active-n { color: #ffd60a; }
+    .lever-labels .active-p { color: #30d158; }
+
+    /* 縦型スライダー */
+    input[type="range"].vertical-lever {
+      -webkit-appearance: slider-vertical;
+      writing-mode: bt-lr;
+      width: 40px;
+      height: 220px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>E233系 レバー制御VVVFシミュレーター</h2>
+
+  <button id="startBtn" class="btn-start">システム起動 / 音声ON</button>
+
+  <div class="meter-box">
+    <div class="label">ノッチ位置</div>
+    <div id="notchDisplay" class="notch-val">切 (N)</div>
+    
+    <div class="label">速度</div>
+    <div id="speedDisplay" class="speed-val">0.0 km/h</div>
+    
+    <div class="label">推定VVVF周波数</div>
+    <div style="font-size: 18px; font-family: monospace;"><span id="freqDisplay">0</span> Hz</div>
+  </div>
+
+  <!-- マスコンレバーUI（上がブレーキ / 下が力行） -->
+  <div class="lever-wrapper">
+    <div class="lever-labels">
+      <span class="active-b">EB (奥/上)</span>
+      <span class="active-b">B8</span>
+      <span class="active-n">N (切)</span>
+      <span class="active-p">P5 (手前/下)</span>
+    </div>
+
+    <!-- min: -5(P5) 〜 max: 9(EB) -->
+    <!-- 上(9)がEB、中央(0)がN、下(-5)がP5 -->
+    <input type="range" id="notchLever" class="vertical-lever" min="-5" max="9" step="1" value="0">
+  </div>
+
+  <script>
+    let audioCtx = null;
+    let oscNode = null;
+    let gainNode = null;
+    let isRunning = false;
+
+    let currentSpeed = 0.0;
+    let currentNotch = 0; // 内部値: -9:EB, -8~-1:B8~B1, 0:N, 1~5:P1~P5
+    let lastTime = performance.now();
+
+    const notchLever = document.getElementById('notchLever');
+
+    function getNotchText(notch) {
+      if (notch === -9) return "EB (非常)";
+      if (notch < 0) return `B${Math.abs(notch)}`;
+      if (notch === 0) return "切 (N)";
+      return `P${notch}`;
+    }
+
+    // レバー操作（入力値を内部ノッチ値へ変換）
+    notchLever.addEventListener('input', function() {
+      const val = parseInt(this.value, 10);
+      // スライダー上部(正の値)をブレーキ(-1〜-9)に、下部(負の値)を力行(1〜5)に反転
+      currentNotch = -val;
+      document.getElementById('notchDisplay').innerText = getNotchText(currentNotch);
+    });
+
+    function initAudio() {
+      if (audioCtx) return;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+      oscNode = audioCtx.createOscillator();
+      oscNode.type = 'sawtooth';
+
+      gainNode = audioCtx.createGain();
+      gainNode.gain.value = 0;
+
+      oscNode.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      oscNode.start();
+    }
+
+    function calculateVVVFFrequency(speed) {
+      if (speed <= 0) return 0;
+
+      if (speed < 18) {
+        return 350 + (speed * 25);
+      } else if (speed < 40) {
+        let baseFreq = 500 + ((speed - 18) * 12);
+        if (speed > 25 && speed < 28) baseFreq -= 80;
+        return baseFreq;
+      } else {
+        return speed * 15;
+      }
+    }
+
+    function updateLoop(now) {
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+
+      let accel = 0;
+      if (currentNotch > 0) {
+        accel = currentNotch * 0.5; // P5で最大 2.5 km/h/s
+      } else if (currentNotch < 0) {
+        if (currentNotch === -9) {
+          accel = -4.5;
+        } else {
+          accel = currentNotch * 0.45;
+        }
+      } else {
+        accel = currentSpeed > 0 ? -0.05 : 0;
+      }
+
+      currentSpeed += accel * dt;
+      if (currentSpeed < 0) currentSpeed = 0;
+      if (currentSpeed > 120) currentSpeed = 120;
+
+      if (audioCtx && isRunning) {
+        const freq = calculateVVVFFrequency(currentSpeed);
+        
+        let targetGain = 0;
+        if (currentSpeed > 0.1 && (currentNotch > 0 || currentNotch < 0)) {
+          targetGain = 0.12; 
+        } else {
+          targetGain = 0;
+        }
+
+        oscNode.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.05);
+        gainNode.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.05);
+
+        document.getElementById('freqDisplay').innerText = Math.round(freq);
+      }
+
+      document.getElementById('speedDisplay').innerText = currentSpeed.toFixed(1) + " km/h";
+
+      requestAnimationFrame(updateLoop);
+    }
+
+    document.getElementById('startBtn').addEventListener('click', function() {
+      initAudio();
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      isRunning = !isRunning;
+      this.innerText = isRunning ? "システム稼働中 (タップで停止)" : "システム起動 / 音声ON";
+      this.style.background = isRunning ? "#30d158" : "#ff453a";
+    });
+
+    requestAnimationFrame(updateLoop);
+  </script>
+</body>
+</html>
