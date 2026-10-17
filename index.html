@@ -178,8 +178,8 @@
       oscNode.start();
 
       // 音声ファイルの読み込み（配下のaudioフォルダを参照）
-      loadSound('audio/brake_release.mp3').then(buf => brakeReleaseBuffer = buf);
-      loadSound('audio/eb_release.mp3').then(buf => ebReleaseBuffer = buf);
+      loadSound('eb.mp3').then(buf => brakeReleaseBuffer = buf);
+      loadSound('brake.mp3').then(buf => ebReleaseBuffer = buf);
     }
 
     function calculateVVVFFrequency(speed) {
