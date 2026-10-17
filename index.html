@@ -189,8 +189,8 @@
       statusMsg.innerText = "音声ファイルをロード中...";
 
       // 正しい対応関係で読み込み
-      brakeReleaseBuffer = await loadSound('brake.mp3');
-      ebReleaseBuffer = await loadSound('eb.mp3');
+      brakeReleaseBuffer = await loadSound('eb.mp3');
+      ebReleaseBuffer = await loadSound('brake.mp3');
 
       if (brakeReleaseBuffer && ebReleaseBuffer) {
         statusMsg.innerText = "音声ロード完了！正常に稼働中";
