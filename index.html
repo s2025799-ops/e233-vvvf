@@ -35,6 +35,11 @@
       width: 80%;
       max-width: 360px;
     }
+    .status-msg {
+      font-size: 13px;
+      color: #ffd60a;
+      margin-top: 8px;
+    }
     
     .lever-wrapper {
       background: #2c2c2e;
@@ -74,6 +79,7 @@
   <h2>E233系 レバー制御VVVFシミュレーター</h2>
 
   <button id="startBtn" class="btn-start">システム起動 / 音声ON</button>
+  <div id="statusMsg" class="status-msg">起動ボタンを押してください</div>
 
   <div class="meter-box">
     <div class="label">ノッチ位置</div>
@@ -109,10 +115,11 @@
 
     let currentSpeed = 0.0;
     let currentNotch = 0;
-    let previousNotch = 0; // ノッチ変化検知用
+    let previousNotch = 0;
     let lastTime = performance.now();
 
     const notchLever = document.getElementById('notchLever');
+    const statusMsg = document.getElementById('statusMsg');
 
     function getNotchText(notch) {
       if (notch === -9) return "EB (非常)";
@@ -121,14 +128,15 @@
       return `P${notch}`;
     }
 
-    // 音声ファイルの読み込み処理
+    // 音声ファイルの読み込み処理（エラー判定機能付き）
     async function loadSound(url) {
       try {
         const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const arrayBuffer = await response.arrayBuffer();
         return await audioCtx.decodeAudioData(arrayBuffer);
       } catch (e) {
-        console.warn("音声ファイルの読み込みスキップ（ファイル未読み込み時）:", url);
+        console.error("音声読み込みエラー:", url, e);
         return null;
       }
     }
@@ -142,7 +150,7 @@
       source.start();
     }
 
-    // レバー操作と緩解音トリガーの判定
+    // レバー操作時の緩解音トリガー
     notchLever.addEventListener('input', function() {
       const val = parseInt(this.value, 10);
       const nextNotch = -val;
@@ -163,7 +171,8 @@
       document.getElementById('notchDisplay').innerText = getNotchText(currentNotch);
     });
 
-    function initAudio() {
+    // オーディオ初期化と音源ロード
+    async function initAudio() {
       if (audioCtx) return;
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
@@ -177,9 +186,19 @@
       gainNode.connect(audioCtx.destination);
       oscNode.start();
 
-      // 音声ファイルの読み込み（配下のaudioフォルダを参照）
-      loadSound('eb.mp3').then(buf => brakeReleaseBuffer = buf);
-      loadSound('brake.mp3').then(buf => ebReleaseBuffer = buf);
+      statusMsg.innerText = "音声ファイルをロード中...";
+
+      // 正しい対応関係で読み込み
+      brakeReleaseBuffer = await loadSound('brake.mp3');
+      ebReleaseBuffer = await loadSound('eb.mp3');
+
+      if (brakeReleaseBuffer && ebReleaseBuffer) {
+        statusMsg.innerText = "音声ロード完了！正常に稼働中";
+        statusMsg.style.color = "#30d158";
+      } else {
+        statusMsg.innerText = "⚠️ 一部または全ての音声ファイル読込に失敗（パス/CORS確認）";
+        statusMsg.style.color = "#ff453a";
+      }
     }
 
     function calculateVVVFFrequency(speed) {
