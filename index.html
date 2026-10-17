@@ -36,7 +36,6 @@
       max-width: 360px;
     }
     
-    /* レバー（スライダー）エリア */
     .lever-wrapper {
       background: #2c2c2e;
       border-radius: 16px;
@@ -61,7 +60,6 @@
     .lever-labels .active-n { color: #ffd60a; }
     .lever-labels .active-p { color: #30d158; }
 
-    /* 縦型スライダー */
     input[type="range"].vertical-lever {
       -webkit-appearance: slider-vertical;
       writing-mode: bt-lr;
@@ -88,7 +86,6 @@
     <div style="font-size: 18px; font-family: monospace;"><span id="freqDisplay">0</span> Hz</div>
   </div>
 
-  <!-- マスコンレバーUI（上がブレーキ / 下が力行） -->
   <div class="lever-wrapper">
     <div class="lever-labels">
       <span class="active-b">EB (奥/上)</span>
@@ -97,8 +94,6 @@
       <span class="active-p">P5 (手前/下)</span>
     </div>
 
-    <!-- min: -5(P5) 〜 max: 9(EB) -->
-    <!-- 上(9)がEB、中央(0)がN、下(-5)がP5 -->
     <input type="range" id="notchLever" class="vertical-lever" min="-5" max="9" step="1" value="0">
   </div>
 
@@ -108,8 +103,13 @@
     let gainNode = null;
     let isRunning = false;
 
+    // 音声バッファ
+    let brakeReleaseBuffer = null;
+    let ebReleaseBuffer = null;
+
     let currentSpeed = 0.0;
-    let currentNotch = 0; // 内部値: -9:EB, -8~-1:B8~B1, 0:N, 1~5:P1~P5
+    let currentNotch = 0;
+    let previousNotch = 0; // ノッチ変化検知用
     let lastTime = performance.now();
 
     const notchLever = document.getElementById('notchLever');
@@ -121,11 +121,45 @@
       return `P${notch}`;
     }
 
-    // レバー操作（入力値を内部ノッチ値へ変換）
+    // 音声ファイルの読み込み処理
+    async function loadSound(url) {
+      try {
+        const response = await fetch(url);
+        const arrayBuffer = await response.arrayBuffer();
+        return await audioCtx.decodeAudioData(arrayBuffer);
+      } catch (e) {
+        console.warn("音声ファイルの読み込みスキップ（ファイル未読み込み時）:", url);
+        return null;
+      }
+    }
+
+    // 効果音再生
+    function playSE(buffer) {
+      if (!audioCtx || !buffer) return;
+      const source = audioCtx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioCtx.destination);
+      source.start();
+    }
+
+    // レバー操作と緩解音トリガーの判定
     notchLever.addEventListener('input', function() {
       const val = parseInt(this.value, 10);
-      // スライダー上部(正の値)をブレーキ(-1〜-9)に、下部(負の値)を力行(1〜5)に反転
-      currentNotch = -val;
+      const nextNotch = -val;
+
+      if (isRunning && audioCtx) {
+        // 非常ブレーキ緩解（EBから解除した時）
+        if (previousNotch === -9 && nextNotch > -9) {
+          playSE(ebReleaseBuffer);
+        } 
+        // 常用ブレーキ緩解（B1〜B8からNまたはPノッチに上げた時）
+        else if (previousNotch < 0 && previousNotch > -9 && nextNotch >= 0) {
+          playSE(brakeReleaseBuffer);
+        }
+      }
+
+      previousNotch = nextNotch;
+      currentNotch = nextNotch;
       document.getElementById('notchDisplay').innerText = getNotchText(currentNotch);
     });
 
@@ -142,6 +176,10 @@
       oscNode.connect(gainNode);
       gainNode.connect(audioCtx.destination);
       oscNode.start();
+
+      // 音声ファイルの読み込み（配下のaudioフォルダを参照）
+      loadSound('audio/brake_release.mp3').then(buf => brakeReleaseBuffer = buf);
+      loadSound('audio/eb_release.mp3').then(buf => ebReleaseBuffer = buf);
     }
 
     function calculateVVVFFrequency(speed) {
@@ -164,7 +202,7 @@
 
       let accel = 0;
       if (currentNotch > 0) {
-        accel = currentNotch * 0.5; // P5で最大 2.5 km/h/s
+        accel = currentNotch * 0.5;
       } else if (currentNotch < 0) {
         if (currentNotch === -9) {
           accel = -4.5;
