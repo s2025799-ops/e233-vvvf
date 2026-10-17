@@ -141,7 +141,7 @@
       }
     }
 
-    // 効果音再生（ログ表示機能付き）
+    // 効果音再生
     function playSE(buffer, name) {
       if (!audioCtx || !buffer) return;
       const source = audioCtx.createBufferSource();
@@ -161,11 +161,11 @@
       if (isRunning && audioCtx) {
         // 非常ブレーキ緩解（EBから解除した時）
         if (previousNotch === -9 && nextNotch > -9) {
-          playSE(ebReleaseBuffer, "非常ブレーキ緩解音");
+          playSE(ebReleaseBuffer, "非常ブレーキ緩解音 (eb.mp3)");
         } 
         // 常用ブレーキ緩解（B1〜B8からNまたはPノッチに上げた時）
         else if (previousNotch < 0 && previousNotch > -9 && nextNotch >= 0) {
-          playSE(brakeReleaseBuffer, "常用ブレーキ緩解音");
+          playSE(brakeReleaseBuffer, "常用ブレーキ緩解音 (brake.mp3)");
         }
       }
 
@@ -190,9 +190,9 @@
 
       statusMsg.innerText = "音声ファイルをロード中...";
 
-      // 元の正しい対応関係に戻しました
-      brakeReleaseBuffer = await loadSound('eb.mp3');    // 常用ブレーキ緩解音用
-      ebReleaseBuffer = await loadSound('brake.mp3');     // 非常ブレーキ緩解音用
+      // 名前通りに修正
+      brakeReleaseBuffer = await loadSound('brake.mp3'); // 常用ブレーキ用
+      ebReleaseBuffer = await loadSound('eb.mp3');       // 非常ブレーキ用
 
       if (brakeReleaseBuffer && ebReleaseBuffer) {
         statusMsg.innerText = "音声ロード完了！正常に稼働中";
